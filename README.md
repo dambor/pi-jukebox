@@ -6,6 +6,7 @@ Este projeto transforma um Raspberry Pi numa central de áudio inteligente que p
 
 O diagrama abaixo ilustra como os componentes de Software e Hardware interagem para entregar o áudio na saída correta.
 
+```mermaid
 graph TD
     subgraph "Utilizador & Controlo"
         User[Utilizador] -->|Acede via Browser| Mobile[Telemóvel]
@@ -50,6 +51,7 @@ graph TD
     style FlaskBackend fill:#61dafb,stroke:#333,stroke-width:2px
     style Raspotify fill:#1db954,stroke:#333,stroke-width:2px,color:white
     style Bose fill:#ff9999,stroke:#333
+```
 
 
 🛒 Hardware Utilizado
