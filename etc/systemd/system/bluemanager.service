@@ -1,0 +1,14 @@
+[Unit]
+Description=BlueManager Web App
+After=network.target bluetooth.target pulseaudio.service
+
+[Service]
+User=dambor
+WorkingDirectory=/home/dambor/bluemanager
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+# Garante que o script encontra o PulseAudio do usuario
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
+
+[Install]
+WantedBy=multi-user.target

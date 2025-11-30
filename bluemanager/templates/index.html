@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Meta tags para impedir Cache (Forçar atualização) -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
+    <title>Jukebox Bluetooth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { 
+            background-color: #0f172a; 
+            color: white; 
+            -webkit-tap-highlight-color: transparent; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .device-card { transition: all 0.2s; }
+        .device-card:active { transform: scale(0.96); background-color: #334155; }
+        
+        .loader { border-top-color: #3b82f6; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .pulse-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            animation: pulsate 2s ease-out infinite;
+            opacity: 0;
+            border: 3px solid #22c55e;
+        }
+        @keyframes pulsate {
+            0% { transform: scale(0.1, 0.1); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: scale(1.2, 1.2); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 max-w-md mx-auto select-none">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6 mt-2">
+        <div>
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+                Jukebox Manager
+            </h1>
+            <p class="text-slate-400 text-xs font-medium tracking-wide">CONTROLADOR BLUETOOTH</p>
+        </div>
+        <!-- Controles de Status -->
+        <div class="flex items-center space-x-3">
+            <button onclick="window.location.reload(true)" class="p-2 text-slate-500 hover:text-white transition active:scale-90" title="Recarregar Página">
+                <i class="fas fa-redo-alt"></i>
+            </button>
+            <div class="relative w-4 h-4 flex items-center justify-center">
+                <div id="status-ring" class="hidden pulse-ring"></div>
+                <div id="status-dot" class="w-3 h-3 rounded-full bg-red-500 shadow-lg transition-colors duration-500"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card de Status Atual -->
+    <div class="bg-slate-800/80 backdrop-blur-sm rounded-2xl p-6 mb-8 shadow-xl border border-slate-700 relative overflow-hidden">
+        <div class="absolute -top-10 -right-10 w-32 h-32 bg-blue-500 rounded-full opacity-10 blur-2xl"></div>
+        
+        <h2 class="text-slate-400 text-[10px] uppercase tracking-widest font-bold mb-3">CONECTADO AGORA</h2>
+        
+        <div class="flex items-center space-x-4 mb-4">
+            <div id="device-icon-container" class="w-14 h-14 rounded-full bg-slate-700 flex items-center justify-center text-2xl transition-colors duration-300">
+                <i class="fas fa-headphones-simple text-slate-400" id="device-icon"></i>
+            </div>
+            <div class="overflow-hidden">
+                <h3 id="current-device-name" class="font-bold text-lg truncate text-slate-300 transition-colors">Nenhum dispositivo</h3>
+                <p id="current-device-mac" class="text-xs text-slate-500 font-mono">--:--:--:--:--</p>
+            </div>
+        </div>
+
+        <button id="btn-disconnect" onclick="disconnect()" class="hidden w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-sm font-bold hover:bg-red-500/20 active:bg-red-500/30 transition border border-red-500/20">
+            Desconectar
+        </button>
+    </div>
+
+    <!-- Scanner Section -->
+    <div class="mb-4 flex justify-between items-end">
+        <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wide">Dispositivos Próximos</h2>
+        <button onclick="scanDevices()" id="btn-scan" class="bg-blue-600 active:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/50 flex items-center transition transform active:scale-95">
+            <i class="fas fa-search mr-2"></i> Escanear
+        </button>
+    </div>
+
+    <!-- Lista de Dispositivos -->
+    <div id="device-list" class="space-y-3 pb-8">
+        <div class="text-center text-slate-600 py-10 bg-slate-900/50 rounded-2xl border border-dashed border-slate-800">
+            <i class="fab fa-bluetooth text-4xl mb-3 opacity-50"></i>
+            <p class="text-sm">Toque em escanear para<br>encontrar caixas de som</p>
+        </div>
+    </div>
+
+    <!-- Modal de Carregamento -->
+    <div id="loading-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden z-50 flex-col transition-opacity duration-300">
+        <div class="relative">
+            <div class="absolute inset-0 bg-blue-500 blur-xl opacity-20 rounded-full"></div>
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-700 h-16 w-16 mb-6 mx-auto relative z-10"></div>
+        </div>
+        <h2 class="text-xl font-bold text-white mb-1">Conectando...</h2>
+        <p class="text-slate-400 text-sm animate-pulse">Negociando áudio de alta qualidade</p>
+    </div>
+
+    <script>
+        // --- LÓGICA DO FRONTEND (Corrigida e com Cache Busting) ---
+
+        // Deteta se estamos num ambiente de pré-visualização (blob) ou no servidor real
+        const isPreview = window.location.protocol === 'blob:' || window.location.protocol === 'file:';
+
+        // Atualiza o status a cada 4 segundos
+        const statusInterval = setInterval(() => checkStatus(false), 4000);
+        checkStatus(false);
+
+        // Função segura para fazer chamadas API
+        async function apiCall(endpoint) {
+            if (isPreview) {
+                console.log(`[Preview] Simulando chamada para: ${endpoint}`);
+                await new Promise(r => setTimeout(r, 800)); // Delay falso
+                
+                // Dados fictícios para teste visual
+                if (endpoint.includes('/connected')) return { connected: false };
+                if (endpoint.includes('/scan')) return [
+                    { name: "JBL Flip 5 (Demo)", mac: "AA:BB:CC:DD:EE:01" },
+                    { name: "Sony WH-1000XM4 (Demo)", mac: "AA:BB:CC:DD:EE:02" }
+                ];
+                if (endpoint.includes('/pair')) return { status: 'success', message: 'Conectado (Demo)' };
+                if (endpoint.includes('/disconnect')) return { status: 'success' };
+                return {};
+            }
+
+            // No Raspberry Pi real, faz a chamada verdadeira
+            const res = await fetch(endpoint);
+            if (!res.ok) throw new Error("Erro na rede");
+            return await res.json();
+        }
+
+        async function checkStatus(manual) {
+            if (manual) {
+                // Feedback visual no botao manual
+                const icon = document.querySelector('.fa-redo-alt');
+                if(icon) icon.classList.add('fa-spin');
+            }
+            
+            try {
+                // Adiciona timestamp para evitar cache do navegador (?t=...)
+                const data = await apiCall('/connected?t=' + new Date().getTime());
+                updateStatusUI(data);
+            } catch (e) {
+                console.error("Erro ao checar status", e);
+            } finally {
+                if (manual) {
+                    setTimeout(() => {
+                        const icon = document.querySelector('.fa-redo-alt');
+                        if(icon) icon.classList.remove('fa-spin');
+                    }, 500);
+                }
+            }
+        }
+
+        function updateStatusUI(data) {
+            const nameEl = document.getElementById('current-device-name');
+            const macEl = document.getElementById('current-device-mac');
+            const dot = document.getElementById('status-dot');
+            const ring = document.getElementById('status-ring');
+            const discBtn = document.getElementById('btn-disconnect');
+            const iconContainer = document.getElementById('device-icon-container');
+            const icon = document.getElementById('device-icon');
+
+            if (data.connected) {
+                nameEl.innerText = data.name;
+                nameEl.classList.remove('text-slate-300');
+                nameEl.classList.add('text-green-400');
+                macEl.innerText = data.mac;
+                
+                dot.classList.remove('bg-red-500');
+                dot.classList.add('bg-green-500', 'shadow-green-500/50');
+                ring.classList.remove('hidden');
+                
+                discBtn.classList.remove('hidden');
+                
+                iconContainer.classList.remove('bg-slate-700');
+                iconContainer.classList.add('bg-green-500/20');
+                icon.classList.remove('text-slate-400');
+                icon.classList.add('text-green-500');
+            } else {
+                nameEl.innerText = "Desconectado";
+                nameEl.classList.add('text-slate-300');
+                nameEl.classList.remove('text-green-400');
+                macEl.innerText = "--:--:--:--:--";
+                
+                dot.classList.remove('bg-green-500', 'shadow-green-500/50');
+                dot.classList.add('bg-red-500');
+                ring.classList.add('hidden');
+                
+                discBtn.classList.add('hidden');
+                
+                iconContainer.classList.add('bg-slate-700');
+                iconContainer.classList.remove('bg-green-500/20');
+                icon.classList.add('text-slate-400');
+                icon.classList.remove('text-green-500');
+            }
+        }
+
+        async function scanDevices() {
+            const btn = document.getElementById('btn-scan');
+            const list = document.getElementById('device-list');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> Buscando...';
+            btn.classList.add('opacity-75', 'cursor-not-allowed');
+            
+            list.innerHTML = `
+                <div class="text-center py-12">
+                    <div class="inline-block relative">
+                        <i class="fas fa-broadcast-tower text-4xl text-blue-500 mb-4 animate-pulse"></i>
+                        <div class="absolute inset-0 bg-blue-500 blur-xl opacity-20"></div>
+                    </div>
+                    <p class="text-slate-400 text-sm">Procurando sinais Bluetooth...</p>
+                </div>
+            `;
+
+            try {
+                const devices = await apiCall('/scan?t=' + new Date().getTime());
+                
+                list.innerHTML = '';
+                
+                if (!devices || devices.length === 0) {
+                    list.innerHTML = `
+                        <div class="text-center text-slate-500 py-10 bg-slate-900/30 rounded-2xl border border-slate-800">
+                            <p class="font-bold">Nada encontrado 😕</p>
+                            <p class="text-xs mt-1">Verifique se sua caixa está piscando (modo pareamento)</p>
+                        </div>
+                    `;
+                } else {
+                    devices.forEach(d => {
+                        const item = document.createElement('div');
+                        item.className = 'device-card bg-slate-800 p-4 rounded-xl flex items-center justify-between cursor-pointer border border-slate-700 hover:border-blue-500/50 hover:bg-slate-750 mb-3';
+                        item.onclick = () => connectTo(d.mac, d.name);
+                        item.innerHTML = `
+                            <div class="flex items-center space-x-4">
+                                <div class="w-10 h-10 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
+                                    <i class="fab fa-bluetooth-b text-blue-500"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <h3 class="font-bold text-sm text-white truncate">${d.name}</h3>
+                                    <p class="text-xs text-slate-500 font-mono truncate">${d.mac}</p>
+                                </div>
+                            </div>
+                            <div class="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-slate-500">
+                                <i class="fas fa-link text-xs"></i>
+                            </div>
+                        `;
+                        list.appendChild(item);
+                    });
+                }
+            } catch (e) {
+                list.innerHTML = '<div class="text-red-400 text-center py-4">Erro ao escanear. Tente atualizar a página.</div>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-search mr-2"></i> Escanear';
+                btn.classList.remove('opacity-75', 'cursor-not-allowed');
+            }
+        }
+
+        async function connectTo(mac, name) {
+            if(!confirm(`Deseja conectar em "${name}"?\n\nCertifique-se que ela está em MODO DE PAREAMENTO (piscando).`)) return;
+            
+            const modal = document.getElementById('loading-modal');
+            modal.classList.remove('hidden');
+            
+            try {
+                const data = await apiCall(`/pair/${mac}`);
+                if(data.status === 'success') {
+                    setTimeout(() => {
+                        checkStatus(true);
+                        alert("🎉 Conectado com sucesso!");
+                    }, 1000);
+                } else {
+                    alert("⚠️ Erro: " + (data.message || "Falha desconhecida"));
+                }
+            } catch (e) {
+                alert("Erro de comunicação com o servidor.");
+            } finally {
+                modal.classList.add('hidden');
+            }
+        }
+
+        async function disconnect() {
+            if(!confirm("Desconectar da caixa atual e parar o som?")) return;
+            document.getElementById('btn-disconnect').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+            try {
+                await apiCall('/disconnect');
+                setTimeout(() => {
+                    checkStatus(true);
+                    document.getElementById('btn-disconnect').innerHTML = 'Desconectar';
+                }, 1000);
+            } catch(e) {
+                alert("Erro ao desconectar");
+                document.getElementById('btn-disconnect').innerHTML = 'Desconectar';
+            }
+        }
+    </script>
+</body>
+</html>
